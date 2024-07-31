@@ -1,0 +1,23 @@
+Инструкция как скачать что угодно из NCBI используя командную строку в Linux. Это может быть нужно для скачивания больших файлов, поскольку NCBI ограничивает их загрузку из браузера. Кроме того, обычно загрузка напрямую из NCBI происходит с большей скоростью, чем через браузер.
+
+Установка с использованием mamba:
+
+mamba create -n ncbi_tool
+mamba activate ncbi_tool
+mamba install -c conda-forge ncbi-datasets-cli
+
+У NCBI две команды: datasets для скачивания биологических последовательностей и dataformat для конвертации метаданных. 
+
+Нам в первую очередь нужен datasets. 
+
+У datasets в свою очередь два режима: download и summary.
+
+Пример использования с человеческих геномом (скачивает последнюю версию сборки генома человека): 
+datasets download genome accsession GCA_009914755.4
+
+Пример использования с рандомным геном:
+datasets download gene accession NP_000483.3
+
+Красивая и понятная картинка с графическим представлением работы этого инструмента: https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/
+
+Детальные инструкции: https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/

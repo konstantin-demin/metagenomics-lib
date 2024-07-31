@@ -1,0 +1,102 @@
+Примерный пайплайн для обработки шотганов:
+
+    1. Проверка качества FastQC, MultiQC.
+
+    2. Тримминг адаптеров и начальный тримминг по качеству – fastp. Тримминг по качеству после fastp – trimmomatic.
+
+    3. MetaWRAP – попробовать с его помощью сделать таксономию по кракену, построить кроны https://github.com/bxlab/metaWRAP или CCMETAGEN https://github.com/vrmarcelino/CCMetagen
+
+    4. phyloFLASH – филогенетика по 16s rRNA https://github.com/HRGV/phyloFlash https://github.com/biobakery/MetaPhlAn2 и метаплан
+
+    5. Другой вспомогательный софт: clumpify и dedupe в пакете bbmap для обработки метагеномных ридов перед этапом сборки в контиги
+
+    6. Bowtie2 для картирования ридов на человеческий геном и удаления всего, что совпало.
+По этой https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_009914755.4/ ссылке можно скачать самую полседнюю и полную сборку человеческого генома. 
+
+    7. Cборка ридов в контиги:
+        7.1. metaspades,
+        7.2. megahit, 
+        7.3. metavelvet
+
+    8. Сборка контигов в бины:
+        8.1. CONCOCT
+        8.2. METABAT2
+        8.3. MAXBIN
+        8.4. DASTOOL — делает консенсусную сборку из результатов предыдущих трёх
+
+
+    9. Оценка качества сборки:
+        9.1. MetaQuast, https://cab.spbu.ru/software/metaquast/ 
+        9.2. CheckM https://github.com/Ecogenomics/CheckM 
+        9.3. MiGA https://disc-genomics.uibk.ac.at/miga/ оценивает качество и полноту сборки, количество эссенциальных генов, число контигов и другие геномные статистики, позволяет попытаться классифицировать геном/бин по одной из доступных баз данных (type material, GTDB, база данных environmental metagenomes)
+
+    10. Аннотация бинов: 
+        10.1. Prokka https://github.com/tseemann/prokka
+        10.2. ghostkoala - для аннотации предсказанных рамок считывания
+        10.3. EggNOG — для предсказания рамок считывания и их аннотации, онлайн сервис, работает быстро и хорошо http://eggnog-mapper.embl.de/
+
+    11. Поиск генов интереса:
+        11.1. Rgi – инструмент для поиска генов АБР https://github.com/arpcard/rgi#install-rgi-from-conda 
+
+        11.2. CD-HIT – софт для выравнивания и кластеризации, используется как альтернатива бласту https://github.com/weizhongli/cdhit/wiki/2.-Installation
+        11.3. или с помощью KMA https://bitbucket.org/genomicepidemiology/kma/src/master/ https://anaconda.org/bioconda/kma 
+        11.4. BacMet – база данных для поиска генов устойчивости к металлам https://academic.oup.com/nar/article/42/D1/D737/1064363 http://bacmet.biomedicine.gu.se/download_temporary.html
+        11.5. PAH degradation – база данных по генам деструкции ПАУ https://environmentalmicrobiome.biomedcentral.com/articles/10.1186/s40793-023-00497-7 , https://github.com/HuangYue-Emma/PAH-biodegradation
+        11.6. кроме того смотрю на это https://github.com/Merck/deepbgc для поиска модулей по типу НРПС https://link.springer.com/chapter/10.1007/978-3-030-73351-3_2 
+
+    12. Дополнительные анализы если будет время:
+Integron-fInder – софт для поиска интегронов
+https://www.mdpi.com/2076-2607/10/4/700 
+https://integronfinder.readthedocs.io/en/latest/ 
+https://github.com/gem-pasteur/Integron_Finder 
+https://anaconda.org/bioconda/integron_finder
+
+MGEfinder – софт для поиска мобильных генетических элементов НЕ ВСТАЛ НА СЕРВАК ИЗ-ЗА PIP
+https://github.com/bhattlab/MGEfinder 
+https://anaconda.org/mdurrant/mgefinder 
+https://academic.oup.com/jac/article/76/1/101/5917579?login=false
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7729385/ 
+
+Поиск плазмид
+База данных с плазмидами для поиска с помощью BLAST, KMA
+https://academic.oup.com/nar/article/50/D1/D273/6439675 
+https://ccb-microbe.cs.uni-saarland.de/plsdb/plasmids/download/ 
+
+PlasFlow: predicting plasmid sequences in metagenomic data using genome signatures
+https://academic.oup.com/nar/article/46/6/e35/4807335 
+https://github.com/smaegol/PlasFlow
+
+PLASMe: a tool to identify PLASMid contigs from short-read assemblies using transformer
+https://academic.oup.com/nar/article/51/15/e83/7222081 
+https://github.com/HubertTang/PLASMe
+SCAPP: an algorithm for improved plasmid assembly in metagenomes
+https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-021-01068-z
+https://github.com/Shamir-Lab/SCAPP
+
+CheckV – Поиск вирусов 
+https://github.com/cmarqu/checkv 
+
+quantify-virome 
+https://github.com/hivlab/quantify-virome 
+
+Поиск генов защиты от вирусов (CRISPR-CAS)
+https://github.com/ctSkennerton/minced 
+
+MetaPhage – софт для поиска и изучения бактериофагов в образцах
+https://journals.asm.org/doi/10.1128/msystems.00741-22 
+https://mattiapandolfovr.github.io/MetaPhage/installation 
+https://github.com/MattiaPandolfoVR/MetaPhage 
+
+Визуализация данных в R. 
+Согласно последним биоинформатическим бенчмаркам, U-тест, LEfSe и ANCOM являются недостаточно надежными методами для дифференциального анализа изобилия микробиоты.
+https://pubmed.ncbi.nlm.nih.gov/36617187/
+https://www.nature.com/articles/s41467-022-28034-z
+Статистика по возможности там же пишут, что лучше использовать MaAsLin2 или LinDA. 
+
+По темной материи (нормализация и статистика в шотганах) есть статьи
+К примеру: 
+https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4637-6 
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6459172/ 
+https://www.nature.com/articles/s41598-021-82726-y 
+https://www.sciencedirect.com/science/article/pii/S0043135421005820?casa_token=rgGbgbmBWaQAAAAA:Tfx6kU5tegIhLo8gj1yPms7CwpHEAuoa__BUzMV6oAujlr1SzfY0j__UyP0MrA0ftVMus4FaeXjG 
+

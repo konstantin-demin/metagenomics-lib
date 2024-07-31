@@ -1,0 +1,231 @@
+Инструкция по сборке MAG'ов (Metagenome-assembled genomes) из метагеномного образца.
+
+Инструкция подразумевает короткие прочтения (Illumina, MGI) и является лишь одним из возможных вариантов выполнения данной задачи. Инструкция также предполагает, что используемое программное обеспечение было установлено с помощью conda/mamba.
+
+Альтернативные программы для каждого из этапов, а также общий обзор можно найти здесь https://www.sciencedirect.com/science/article/pii/S0944501322000635 и здесь https://www.sciencedirect.com/science/article/pii/S2001037021004931
+
+В данном туториале предполагается, что изначально все файлы лежат в домашней папке, а геномы мы собираем из следующих файлов: metagenome.1.fq.gz, metagenome.2.fq.gz (forward и reverse соответственно). Свои пути необходимо прописывать самостоятельно.
+
+
+КОНТРОЛЬ КАЧЕСТВА И ПРЕДОБРАБОТКА, этапы:
+
+(1) Посмотреть на общее качество и наличие адаптеров с помощью FastQC
+
+(2) Если есть адаптеры или некачественные риды, то удалить или отредактировать их с помощью trimmomatic (много опций, специфических для конкретных данных, см. tutorial https://github.com/usadellab/Trimmomatic):
+
+trimmomatic PE \
+-threads 10 \
+metagenome.1.fq.gz \
+metagenome.2.fq.gz \
+metagenome.1.trim.paired.fq.gz \
+metagenome.1.trim.unpaired.fq.gz \
+metagenome.2.trim.paired.fq.gz \
+metagenome.2.trim.unpaired.fq.gz \
+ILLUMINACLIP:TruSeq3-PE.fa:2:30:10:2:True LEADING:3 TRAILING:3 MINLEN:36
+
+Дальше пользователь сам решает, как поступать с файлами, содержащими unpaired reads.
+
+(3) [необязательный этап] Сортируем риды по схожести и разбиваем их на группы, clump'ы, с помощью функции clumpify.sh доступной в программе bbmap:
+
+clumpify.sh \
+in=metagenome.1.trim.paired.fq.gz \
+in2=metagenome.2.trim.paired.fq.gz \
+out=metagenome.1.trim.clump.fq.gz \
+out2=metagenome.2.trim.clump.fq.gz \
+
+(4) [необязательный этап] Удаляем дубликаты ридов с помощью функции clumpify.sh доступной в программе bbmap:
+
+clumpify.sh \
+in=metagenome.1.trim.clump.fq.gz \
+in2=metagenome.2.trim.clump.fq.gz \
+out=metagenome.1.trim.clump.de.fq.gz \
+out2=metagenome.2.trim.clump.de.fq.gz \
+dedupe=t
+
+(5) Удалить прочтения ДНК организма-хозяина. Почти всегда предполагает удаление человеческой ДНК. Для этого необходимо взять референсную сборку генома организма-хозяина, сделать из неё индексированную базу данных и использовать её для поиска совпадений между ней и образцом. Мы будем использовать bowtie2 и сборку человеческого генома, доступную по номеру GCA_009914755.4.
+
+(5.1) Создание индексированной базы данных:
+
+mkdir hg_db &&
+bowtie2-build \
+GCA_009914755.4_T2T-CHM13v2.0_genomic.fna \
+./hg_db/hg_index
+
+(5.2) Картирование метагеномного образца на базу данных:
+
+bowtie2 \
+-p 10 \
+-x ./hg_db/hg_index \
+-1 metagenome.1.trim.clump.de.fq.gz \
+-2 metagenome.2.trim.clump.de.fq.gz \
+--un-conc metagenome.trim.clump.de.outhum.fasta
+
+
+СБОРКА РИДОВ В КОНТИГИ, этапы:
+
+(1) Собираем контиги с помощью metaspades (может быть ситуация, когда будущие геномы лучше будут собираться из контигов, собранных другой программой, например MEGAHIT. You never know):
+
+metaspades.py \
+-t 10 \
+--only-assembler \
+-1 metagenome.trim.clump.de.outhum.1.fasta
+-2 metagenome.trim.clump.de.outhum.2.fasta
+-o spades_assembly
+
+(2) Теперь нужно узнать, как много ридов из оригинального датасета картируется на контиги (то есть, сколько пошло в сборку; так мы узнаем покрытие контигов выраженное в числе ридов), и выразить эту информацию ввиде SAM-файла. Это также делаем с помощью bowtie2. Информация об этом понадобится для следующих шагов.
+
+(2.1) Создаем индексированную базу данных из собранных контигов:
+
+mkdir spades_contigs_indexed &&
+bowtie2-build \
+spades_assembly/scaffolds.fasta \
+spades_contigs_indexed/sci
+
+(2.2) Картируем риды на контиги: 
+
+bowtie2 \
+-p 10 \
+-x spades_contigs_indexed/sci \
+-1 metagenome.trim.clump.de.outhum.1.fasta \
+-2 metagenome.trim.clump.de.outhum.2.fasta \
+-S spades.assembly.reads.to.contigs.sam
+
+(2.3) Перводим sam файл в индексированный bam файл с помощью инструментов программы samtools: 
+
+(2.3.1) конвертируем:
+samtools view \
+--threads 10 \
+-bS \
+spades.assembly.reads.to.contigs.sam > spades.assembly.reads.to.contigs.bam
+
+(2.3.2) сортируем:
+samtools sort \
+--threads 10 \
+spades.assembly.reads.to.contigs.bam \
+-o spades.assembly.reads.to.contigs.sorted.bam
+
+(2.3.3) индексируем:
+samtools index spades.assembly.reads.to.contigs.sorted.bam
+
+
+СБОРКА КОНТИГОВ В БИНЫ, этапы: 
+
+С помощью metabat2:
+
+(1) Генерируем информацию о покрытии из bam-файла с помощью функции jgi_summarize_bam_contig_depths из самого metabat'a: 
+
+jgi_summarize_bam_contig_depths \
+--outputDepth metabat.spades.assembly.depth.txt \
+spades.assembly.reads.to.contigs.sorted.bam
+
+(2) Собираем бины: 
+
+metabat2 \
+-t 10 \
+-i spades_assembly/scaffolds.fasta \
+-a metabat.spades.assembly.depth.txt \
+-o metabat_bins_dir/metabat_bin
+
+С помощью maxbin2:
+
+(1) Генерируем информацию о покрытии из sam-файла с помощью функции pileup.sh из bbmap:
+
+pileup.sh \
+in=spades.assembly.reads.to.contigs.sam \
+out=spades.assembly.maxbin.coverage.txt &&
+awk '{print $1"\t"$5}' spades.assembly.maxbin.coverage.txt | grep -v '^#' > spades.assembly.maxbin.abundance.txt
+
+(2) Собираем бины: 
+
+mkdir spades_assembly_maxbin_bins &&
+run_MaxBin.pl \
+-thread 10 \
+-contig spades_assembly/scaffolds.fasta \
+-out spades_assembly_maxbin_bins/sci_maxbin \
+-abund spades.assembly.maxbin.abundance.txt
+
+C помощью CONCOCT (описание каждого шага смотреть тут https://concoct.readthedocs.io/en/latest/usage.html), все используемые функции доступны при установке самого CONCOCT: 
+
+(1)
+cut_up_fasta.py \
+spades_assembly/scaffolds.fasta \
+-c 10000 \
+-o 0 \
+--merge_last \
+-b contigs_10K.bed > contigs_10K.fa
+
+(2)
+concoct_coverage_table.py \
+contigs_10K.bed \
+spades.assembly.reads.to.contigs.sorted.bam > coverage_table.tsv
+
+(3)
+mkdir concoct_output &&
+concoct \
+--composition_file contigs_10K.fa \
+--coverage_file coverage_table.tsv \
+-b concoct_output/
+
+(4)
+merge_cutup_clustering.py \
+concoct_output/clustering_gt1000.csv > concoct_output/clustering_merged.csv
+
+(5)
+mkdir concoct_output/fasta_bins &&
+extract_fasta_bins.py \
+spades_assembly/scaffolds.fasta \
+concoct_output/clustering_merged.csv \
+--output_path concoct_output/fasta_bins
+
+НА ДАННОМ ЭТАПЕ БИНЫ ИЗ ВСЕХ ТРЁХ ПРОГРАММ МОЖНО ИСПОЛЬЗОВАТЬ НЕЗАВИСИМО, ОДНАКО КАКИЕ-ТО БИНЫ - И ИХ СКОРЕЕ ВСЕГО БУДЕТ БОЛЬШИНСТВО - БУДУТ "ПЕРЕСЕКАТЬСЯ" МЕЖДУ РЕЗУЛЬТАТАМИ БИННЕРОВ (собрали одно и то же)
+
+
+ПОЛУЧЕНИЕ КОНСЕНСУСНЫХ БИНОВ С ПОМОЩЬЮ DASTOOL
+
+(1) Необходимо получить таблицы вида "номер контига - номер бина в который этот контиг попал" для результатов работы каждого приложения-биннера (у нас было 3), делаем с помощью функции Fasta_to_Contigs2Bin.sh из программы DAS_Tool:
+
+(1.1) Для maxbin:
+Fasta_to_Contigs2Bin.sh \
+-i spades_assembly_maxbin_bins/ \
+-e fasta > maxbin.contigs2bin.tsv
+
+Для metabat и CONCOCT то же самое, но со своими путями и именами.
+
+(2) Используем данные о том, какой контиг куда попал по результатам работы трёх биннеров для того, чтобы получить консенсусные бины из трёх вариантов:
+
+DAS_Tool -i maxbin.contigs2bin.tsv,\
+maxbin.contigs2bin.tsv,\
+metabat.contigs2bin.tsv,\
+concoct.contigs2bin.tsv \
+-l maxbin,metabat,concoct \
+-c spades_assembly/scaffolds.fasta \
+-o dastool_output/dastool_bin \
+--proteins dastool_output/dastool_proteins.faa \
+--write_bin_evals \
+--threads 10
+
+Консенсусные бины будут лежать в аутпуте dastool. 
+
+
+КОНТРОЛЬ КАЧЕСТВА БИНОВ: 
+
+(1) Контроль качества бинов, информацию о маркерных генах и предварительную классификацию можно получить используя программу CheckM (https://github.com/Ecogenomics/CheckM).
+
+(2) Подробные статистики и подробную классификацию можно получить, загрузив бины в MiGA (https://disc-genomics.uibk.ac.at/miga/login).
+
+(3) Интересующие бины можно дополнительно почистить от мусора используя программу MAGPurify (https://github.com/snayfach/MAGpurify). 
+
+(4) Какие бины следует признавать MAG'ами? Различные критерии перечислены тут: https://www.nature.com/articles/nbt.3893 , в особенности в таблице https://www.nature.com/articles/nbt.3893/tables/1 . Также следует обращать внимание на бины с как можно меньшим числом контигов при условии большого N50 и соответствия размера генома ожидаемому размеру для таксона данного бина. Желательно наличие генов рибосомальных белков, но их систематическое непопадание в бины известно и задокументировано https://www.nature.com/articles/s43705-022-00204-6 .
+
+
+ДОПОЛНИТЕЛЬНЫЙ ПРОЦЕССИНГ БИНОВ, этапы: 
+
+(1) Оценить родство двух бинов или бина и скачанной откуда-то сборки по средней схожести аминокислот можно в сервисе TyGS (https://tygs.dsmz.de/) и в AAI калькуляторе (http://enve-omics.ce.gatech.edu/aai/). 
+
+(2) Оценить родство двух бинов или бина и скачанной откуда-то сборки по молекулярной гибридизации in situ можно с помощью сервиса GGDC (https://ggdc.dsmz.de/ggdc.php#).
+
+(3) Аннотацию можно сделать с помощью GhostKoala и EggNOG.
+
+(4) Принадлежность обнаруженных в бине генов к конкретным оперонам можно изучить используя сервис https://biocomputo.ibt.unam.mx/operon_mapper/ .
+
+
